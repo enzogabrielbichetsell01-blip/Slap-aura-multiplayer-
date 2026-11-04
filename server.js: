@@ -1,0 +1,86 @@
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+
+const app = express();
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: "*"
+  }
+});
+
+app.get("/", (req, res) => {
+  res.send("SLAP AURA Multiplayer está online!");
+});
+
+const players = {};
+
+io.on("connection", (socket) => {
+  players[socket.id] = {
+    x: 0,
+    z: 0,
+    aura: 0,
+    glove: 1
+  };
+
+  socket.emit("players", players);
+  socket.broadcast.emit("playerJoined", {
+    id: socket.id,
+    player: players[socket.id]
+  });
+
+  socket.on("move", (data) => {
+    if (!players[socket.id]) return;
+
+    players[socket.id].x = Math.max(-20, Math.min(20, Number(data.x) || 0));
+    players[socket.id].z = Math.max(-20, Math.min(20, Number(data.z) || 0));
+
+    io.emit("playerMoved", {
+      id: socket.id,
+      player: players[socket.id]
+    });
+  });
+
+  socket.on("slap", (targetId) => {
+    if (!players[socket.id] || !players[targetId]) return;
+    if (targetId === socket.id) return;
+
+    const a = players[socket.id];
+    const b = players[targetId];
+
+    const distance = Math.hypot(a.x - b.x, a.z - b.z);
+
+    if (distance > 3) return;
+
+    a.aura += a.glove;
+
+    io.emit("slapEffect", {
+      attacker: socket.id,
+      victim: targetId,
+      aura: a.aura
+    });
+  });
+
+  socket.on("buyGlove", () => {
+    const p = players[socket.id];
+    if (!p || p.glove !== 1 || p.aura < 10) return;
+
+    p.aura -= 10;
+    p.glove = 2;
+
+    socket.emit("gloveBought", p);
+  });
+
+  socket.on("disconnect", () => {
+    delete players[socket.id];
+    io.emit("playerLeft", socket.id);
+  });
+});
+
+const PORT = process.env.PORT || 3000;
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log("SLAP AURA rodando na porta " + PORT);
+});
